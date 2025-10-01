@@ -1,0 +1,31 @@
+{
+  "name": "funding-rate-arbitrage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx src/perp/index.ts",
+    "dev": "tsx --watch src/perp/index.ts",
+    "faucet": "tsx src/perp/faucet.ts",
+    "positions": "tsx src/perp/positions.ts",
+    "hyperion": "tsx src/spot/hyperion.ts",
+    "hyperion:list-coins": "tsx src/spot/list-coins.ts",
+    "hyperion:list-pools": "tsx src/spot/list-pools.ts",
+    "arb:long-spot-short-perp": "tsx src/arbitrage/long-spot-short-perp.ts"
+  },
+  "dependencies": {
+    "@aptos-labs/ts-sdk": "^1.33.1",
+    "@hyperionxyz/sdk": "^0.0.21",
+    "@merkletrade/ts-sdk": "^1.0.3",
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/ws": "^8.5.9",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.4"
+  }
+}

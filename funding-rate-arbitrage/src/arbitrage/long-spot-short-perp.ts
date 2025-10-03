@@ -189,7 +189,7 @@ export async function main() {
   const spotOutDecimals = args.spotOutDecimals ?? 8;
   const slippageBps = args.slippageBps ?? 50;
   const safeMode = args.safeMode ?? false;
-  const perpPair = args.perpPair ?? 'BTC_USD';
+  const perpPair = args.perpPair ?? 'APT_USD';
   const submitSpot = args.submitSpot ?? false;
   const submitPerp = args.submitPerp ?? false;
   const perpNetwork = (args.perpNetwork ?? 'mainnet').toLowerCase();

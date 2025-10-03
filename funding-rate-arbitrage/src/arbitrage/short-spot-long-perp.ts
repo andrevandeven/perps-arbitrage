@@ -389,7 +389,7 @@ export async function executeShortAptArbitrage(
         hyperionSdk,
         aptBorrowAmount,
         usdcTargetAmount,
-        perpPair = 'BTC_USD',
+        perpPair = 'ATP_USD',
         perpCollateralDelta,
         slippageBps = 50,
         ariesConfig,
@@ -909,7 +909,7 @@ export async function main() {
     const spotOutDecimals = args.spotOutDecimals ?? USDC_DECIMALS;
     const slippageBps = args.slippageBps ?? 50;
     const safeMode = args.safeMode ?? false;
-    const perpPair = args.perpPair ?? 'BTC_USD';
+    const perpPair = args.perpPair ?? 'APT_USD';
     const submitSpot = args.submitSpot ?? false;
     const submitPerp = args.submitPerp ?? false;
     const perpNetwork = (args.perpNetwork ?? 'mainnet').toLowerCase();

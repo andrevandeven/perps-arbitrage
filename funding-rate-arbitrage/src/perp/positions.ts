@@ -35,7 +35,7 @@ const ARIES_USDC_DECIMALS = 6;
 export async function getFundingRate(pairId: string = 'APT_USD'): Promise<number> {
   const merkle = new MerkleClient(await MerkleClientConfig.mainnet());
   const pairState = await merkle.getPairState({ pairId });
-  return Number(pairState.currentFundingRate) / 1_000_000;
+  return Number(pairState.fundingRate) / 1_000_000;
 }
 
 

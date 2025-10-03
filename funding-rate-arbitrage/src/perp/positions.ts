@@ -108,12 +108,18 @@ async function fetchMarkPrices(merkle: MerkleClient, pairIds: string[]) {
 }
 
 async function showStatus(merkle: MerkleClient, account: Account) {
+  console.log('🔍 [DEBUG] showStatus: Getting positions and balance for account:', account.accountAddress.toString());
+
   const [positions, orders, balance, summary] = await Promise.all([
     merkle.getPositions({ address: account.accountAddress }),
     merkle.getOrders({ address: account.accountAddress }),
     merkle.getUsdcBalance({ accountAddress: account.accountAddress }),
     merkle.getSummary(),
   ]);
+
+  console.log('📊 [DEBUG] showStatus: Raw balance from Merkle:', balance);
+  console.log('📈 [DEBUG] showStatus: Positions count:', positions.length);
+  console.log('📋 [DEBUG] showStatus: Orders count:', orders.length);
 
   const pairStateCache = new Map<string, Awaited<ReturnType<typeof merkle.getPairState>>>();
 
@@ -136,6 +142,9 @@ async function showStatus(merkle: MerkleClient, account: Account) {
     positions: [] as any[],
     orders: [] as any[]
   };
+
+  console.log('💰 [DEBUG] showStatus: Formatted balance:', formatUsdc(balance));
+  console.log('🏦 [DEBUG] showStatus: Account address:', account.accountAddress.toString());
 
   if (positions.length === 0) {
     statusData.positions = [];
@@ -260,7 +269,7 @@ export async function main() {
     };
 
     console.log(JSON.stringify(result, null, 2));
-    return;
+    return result;
   }
 
   // Get all status data
@@ -275,6 +284,7 @@ export async function main() {
   };
 
   console.log(JSON.stringify(result, null, 2));
+  return result;
 }
 
 main().catch((error) => {
@@ -458,10 +468,16 @@ function computeAmountFromShares(
 }
 
 async function showAriesOverview(aptos: Aptos, account: Account) {
+  console.log('🔍 [DEBUG] showAriesOverview: Getting Aries data for account:', account.accountAddress.toString());
+
   const ariesAddressRaw = process.env.ARIES_CORE_ADDRESS ?? DEFAULT_ARIES_CORE_ADDRESS;
   const ariesAddress = ariesAddressRaw.toLowerCase();
   const wrappedType = process.env.ARIES_WRAPPED_COLLATERAL_TYPE ?? DEFAULT_WRAPPED_USDC;
   const profileName = process.env.ARIES_PROFILE_NAME ?? 'main';
+
+  console.log('🏦 [DEBUG] showAriesOverview: Aries address:', ariesAddress);
+  console.log('🪙 [DEBUG] showAriesOverview: Wrapped type:', wrappedType);
+  console.log('👤 [DEBUG] showAriesOverview: Profile name:', profileName);
 
   const ariesData = {
     wrappedUsdcCoinBalance: '0',
@@ -475,6 +491,7 @@ async function showAriesOverview(aptos: Aptos, account: Account) {
 
   try {
     const coinStoreType = `0x1::coin::CoinStore<${wrappedType}>` as any;
+    console.log('🔍 [DEBUG] showAriesOverview: Checking coin store type:', coinStoreType);
     let wrappedBalance = 0n;
     try {
       const coinStore = await aptos.getAccountResource({
@@ -483,11 +500,14 @@ async function showAriesOverview(aptos: Aptos, account: Account) {
       });
       const raw = (coinStore as any)?.data?.coin?.value ?? '0';
       wrappedBalance = BigInt(raw);
+      console.log('💰 [DEBUG] showAriesOverview: Raw wrapped balance:', raw);
     } catch (error) {
+      console.log('⚠️ [DEBUG] showAriesOverview: Coin store resource missing or error:', (error as Error).message);
       // resource missing means zero balance; ignore
     }
 
     ariesData.wrappedUsdcCoinBalance = formatWithDecimals(wrappedBalance, ARIES_USDC_DECIMALS);
+    console.log('💵 [DEBUG] showAriesOverview: Formatted wrapped balance:', ariesData.wrappedUsdcCoinBalance);
 
     const accountHex = account.accountAddress.toString();
     const views = [

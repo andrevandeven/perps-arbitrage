@@ -1,0 +1,21 @@
+{
+  "name": "tg-custodial-wallet-esm",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@aptos-labs/ts-sdk": "^5.1.0",
+    "aptos": "^1.21.0",
+    "dotenv": "^16.4.5",
+    "fs-extra": "^11.3.2",
+    "node-fetch": "^3.3.2",
+    "path": "^0.12.7",
+    "playwright": "^1.55.1",
+    "telegraf": "^4.16.3",
+    "url": "^0.11.4",
+    "yargs": "^18.0.0"
+  }
+}

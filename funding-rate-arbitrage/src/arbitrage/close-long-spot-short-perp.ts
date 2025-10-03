@@ -167,6 +167,8 @@ export async function main() {
   let amountOutBase = 0n;
   let routePath: any[] | undefined;
 
+  let hyperionQuote = null;
+
   if (spotOutBase && spotOutBase > 0n) {
     const quote = await sdk.Swap.estToAmount({
       from: spotFromFa,
@@ -177,8 +179,11 @@ export async function main() {
 
     const bestRoute = (quote as any)?.bestRoute ?? quote;
     if (!bestRoute?.path || bestRoute.path.length === 0) {
-      console.error('Hyperion returned no route. Raw response:');
-      console.dir(quote, { depth: null });
+      const errorResult = {
+        error: 'Hyperion returned no route',
+        rawResponse: quote
+      };
+      console.log(JSON.stringify(errorResult, null, 2));
       return;
     }
 
@@ -186,14 +191,18 @@ export async function main() {
     amountOutBase = BigInt(bestRoute.amountOut ?? 0);
     routePath = bestRoute.path;
 
-    console.log('\n--- Hyperion Quote (APT -> USDC amount-out) ---');
-    console.log('Network       :', hyperionNetwork);
-    console.log('Output token  :', spotToFa);
-    console.log('Output amount :', args.spotOut);
-    console.log('Input token   :', spotFromFa);
-    console.log('Amount in (base)  :', bestRoute.amountIn);
-    console.log('Amount out (base) :', bestRoute.amountOut);
+    hyperionQuote = {
+      network: hyperionNetwork,
+      outputToken: spotToFa,
+      outputAmount: args.spotOut,
+      inputToken: spotFromFa,
+      amountIn: bestRoute.amountIn,
+      amountOut: bestRoute.amountOut,
+      routePath: routePath
+    };
   }
+
+  let spotExecution = null;
 
   if (submitSpot && amountInBase > 0n) {
     const payload = await sdk.Swap.swapTransactionPayload({
@@ -207,31 +216,63 @@ export async function main() {
     });
 
     await submitAptosTransaction({ aptos, account, payload, label: 'Hyperion APT->USDC swap' });
+
+    spotExecution = {
+      action: 'apt_swapped_for_usdc',
+      hyperionQuote: hyperionQuote,
+      slippageBps: slippageBps
+    };
   } else if (amountInBase > 0n) {
-    console.log('Spot leg dry run (pass --submit-spot true to execute swap).');
+    const dryRunResult = {
+      action: 'dry_run',
+      message: 'Spot leg dry run (pass --submit-spot true to execute swap).',
+      hyperionQuote: hyperionQuote
+    };
+    console.log(JSON.stringify(dryRunResult, null, 2));
+    return;
   }
 
   // Close short perp position
   const positions = await merkle.getPositions({ address: account.accountAddress });
   const existing = positions.find((pos) => normalizePair(pos.pairType) === perpPair);
+
   if (!existing || existing.size === 0n) {
-    console.log(`No open Merkle position found for ${perpPair}.`);
+    const noPositionResult = {
+      action: 'abort',
+      reason: 'no_open_position',
+      pair: perpPair,
+      message: `No open Merkle position found for ${perpPair}.`
+    };
+    console.log(JSON.stringify(noPositionResult, null, 2));
     return;
   }
 
   if (existing.isLong) {
-    console.warn(`Existing ${perpPair} position is not short; skipping close.`);
+    const wrongDirectionResult = {
+      action: 'abort',
+      reason: 'wrong_position_direction',
+      pair: perpPair,
+      isLong: existing.isLong,
+      message: `Existing ${perpPair} position is not short; skipping close.`
+    };
+    console.log(JSON.stringify(wrongDirectionResult, null, 2));
     return;
   }
 
-  console.log('\n--- Merkle Short Perp Close ---');
-  console.log('Pair            :', perpPair);
-  console.log('Open size (6d)  :', existing.size.toString());
-  console.log('Collateral (6d) :', existing.collateral.toString());
+  const perpPosition = {
+    pair: perpPair,
+    openSize: existing.size.toString(),
+    collateral: existing.collateral.toString(),
+    direction: existing.isLong ? 'LONG' : 'SHORT'
+  };
 
-  // Always close perp when running the close script
   if (!submitPerp) {
-    console.log('Perp close skipped (--submit-perp false was explicitly passed).');
+    const dryRunResult = {
+      action: 'dry_run',
+      message: 'Perp close skipped (--submit-perp false was explicitly passed).',
+      perpPosition: perpPosition
+    };
+    console.log(JSON.stringify(dryRunResult, null, 2));
     return;
   }
 
@@ -250,9 +291,27 @@ export async function main() {
   });
 
   const pending = await aptos.signAndSubmitTransaction({ signer: account, transaction: rawTxn });
-  console.log('Perp close pending hash:', pending.hash);
   const committed = await aptos.waitForTransaction({ transactionHash: pending.hash });
-  console.log('Perp close confirmed at version:', committed.version);
+
+  const perpClose = {
+    action: 'short_perp_position_closed',
+    transactionHash: pending.hash,
+    version: committed.version,
+    pair: perpPair,
+    sizeClosed: existing.size.toString(),
+    direction: 'SHORT'
+  };
+
+  const executionResult = {
+    action: 'arbitrage_closed',
+    strategy: 'close_long_spot_short_perp',
+    hyperionQuote: hyperionQuote,
+    spotExecution: spotExecution,
+    perpPosition: perpPosition,
+    perpClose: perpClose
+  };
+
+  console.log(JSON.stringify(executionResult, null, 2));
 }
 
 main().catch((error) => {
@@ -272,9 +331,8 @@ async function submitAptosTransaction(args: {
     data: payload,
   });
   const pending = await aptos.signAndSubmitTransaction({ signer: account, transaction: rawTxn });
-  console.log(`${label} pending hash:`, pending.hash);
   const committed = await aptos.waitForTransaction({ transactionHash: pending.hash });
-  console.log(`${label} confirmed at version:`, committed.version);
+  // Transaction details stored for JSON output
 }
 
 function normalizePair(pairType: string): string {

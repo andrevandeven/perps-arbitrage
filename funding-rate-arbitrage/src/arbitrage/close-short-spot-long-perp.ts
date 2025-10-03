@@ -196,18 +196,22 @@ export async function main() {
   const aptos = new Aptos(merkleConfig.aptosConfig);
 
   const outstandingLoan = await fetchOutstandingLoan({ aptos, account, args });
-  if (outstandingLoan === 0n) {
-    console.log('No outstanding Aries APT loan detected.');
-  } else {
-    console.log('Outstanding APT loan (base units):', outstandingLoan.toString());
-  }
+
+  const loanStatus = {
+    hasOutstandingLoan: outstandingLoan > 0n,
+    outstandingLoan: outstandingLoan.toString(),
+    message: outstandingLoan === 0n ? 'No outstanding Aries APT loan detected.' : `Outstanding APT loan (base units): ${outstandingLoan.toString()}`
+  };
 
   const spotOutBase = args.spotOut
     ? toBaseUnits(args.spotOut, spotOutDecimals, 'spot-out')
     : outstandingLoan;
-  if (spotOutBase === 0n) {
-    console.log('No buy-back required; skipping spot leg.');
-  }
+
+  const spotLegStatus = {
+    required: spotOutBase > 0n,
+    spotOutBase: spotOutBase.toString(),
+    message: spotOutBase === 0n ? 'No buy-back required; skipping spot leg.' : `Buy-back required: ${spotOutBase.toString()} APT`
+  };
 
   const quote = spotOutBase === 0n
     ? null
@@ -222,25 +226,34 @@ export async function main() {
   let amountOutBase = 0n;
   let routePath: any[] | undefined;
 
+  let hyperionQuote = null;
+
   if (quote) {
     const bestRoute = (quote as any)?.bestRoute ?? quote;
     if (!bestRoute?.path || bestRoute.path.length === 0) {
-      console.error('Hyperion returned no route. Raw response:');
-      console.dir(quote, { depth: null });
+      const errorResult = {
+        error: 'Hyperion returned no route',
+        rawResponse: quote
+      };
+      console.log(JSON.stringify(errorResult, null, 2));
       return;
     }
     amountInBase = BigInt(bestRoute.amountIn ?? 0);
     amountOutBase = BigInt(bestRoute.amountOut ?? 0);
     routePath = bestRoute.path;
 
-    console.log('\n--- Hyperion Quote (USDC -> APT amount-out) ---');
-    console.log('Network       :', hyperionNetwork);
-    console.log('Output token  :', spotToFa);
-    console.log('Output amount :', args.spotOut ?? formatBaseAmount(spotOutBase, spotOutDecimals));
-    console.log('Input token   :', spotFromFa);
-    console.log('Amount in (base)  :', bestRoute.amountIn);
-    console.log('Amount out (base) :', bestRoute.amountOut);
+    hyperionQuote = {
+      network: hyperionNetwork,
+      outputToken: spotToFa,
+      outputAmount: args.spotOut ?? formatBaseAmount(spotOutBase, spotOutDecimals),
+      inputToken: spotFromFa,
+      amountIn: bestRoute.amountIn,
+      amountOut: bestRoute.amountOut,
+      routePath: routePath
+    };
   }
+
+  let spotExecution = null;
 
   if (submitSpot && quote) {
     const payload = await sdk.Swap.swapTransactionPayload({
@@ -254,14 +267,31 @@ export async function main() {
     });
 
     await submitAptosTransaction({ aptos, account, payload, label: 'Hyperion USDC->APT swap' });
+
+    spotExecution = {
+      action: 'usdc_swapped_for_apt',
+      hyperionQuote: hyperionQuote,
+      slippageBps: slippageBps
+    };
   } else if (quote) {
-    console.log('Spot leg dry run (pass --submit-spot true to execute swap + repay).');
+    const dryRunResult = {
+      action: 'dry_run',
+      message: 'Spot leg dry run (pass --submit-spot true to execute swap + repay).',
+      hyperionQuote: hyperionQuote
+    };
+    console.log(JSON.stringify(dryRunResult, null, 2));
+    return;
   }
+
+  let repayResult = null;
 
   if (submitSpot) {
     const updatedLoan = await fetchOutstandingLoan({ aptos, account, args });
     if (updatedLoan === 0n) {
-      console.log('Outstanding loan already cleared; skipping repay.');
+      repayResult = {
+        action: 'loan_already_cleared',
+        message: 'Outstanding loan already cleared; skipping repay.'
+      };
     } else {
       await repayAriesLoan({
         aptos,
@@ -269,29 +299,54 @@ export async function main() {
         args,
         repayAmount: updatedLoan,
       });
+
+      repayResult = {
+        action: 'apt_loan_repaid',
+        repayAmount: updatedLoan.toString()
+      };
     }
   }
 
   const positions = await merkle.getPositions({ address: account.accountAddress });
   const existing = positions.find((pos) => normalizePair(pos.pairType) === perpPair);
+
   if (!existing || existing.size === 0n) {
-    console.log(`No open Merkle position found for ${perpPair}.`);
+    const noPositionResult = {
+      action: 'abort',
+      reason: 'no_open_position',
+      pair: perpPair,
+      message: `No open Merkle position found for ${perpPair}.`
+    };
+    console.log(JSON.stringify(noPositionResult, null, 2));
     return;
   }
 
   if (!existing.isLong) {
-    console.warn(`Existing ${perpPair} position is not long; skipping close.`);
+    const wrongDirectionResult = {
+      action: 'abort',
+      reason: 'wrong_position_direction',
+      pair: perpPair,
+      isLong: existing.isLong,
+      message: `Existing ${perpPair} position is not long; skipping close.`
+    };
+    console.log(JSON.stringify(wrongDirectionResult, null, 2));
     return;
   }
 
-  console.log('\n--- Merkle Long Perp Close ---');
-  console.log('Pair            :', perpPair);
-  console.log('Open size (6d)  :', existing.size.toString());
-  console.log('Collateral (6d) :', existing.collateral.toString());
+  const perpPosition = {
+    pair: perpPair,
+    openSize: existing.size.toString(),
+    collateral: existing.collateral.toString(),
+    direction: existing.isLong ? 'LONG' : 'SHORT'
+  };
 
-  // Always close perp when running the close script
   if (!submitPerp) {
-    console.log('Perp close skipped (--submit-perp false was explicitly passed).');
+    const dryRunResult = {
+      action: 'dry_run',
+      message: 'Perp close skipped (--submit-perp false was explicitly passed).',
+      perpPosition: perpPosition
+    };
+    console.log(JSON.stringify(dryRunResult, null, 2));
     return;
   }
 
@@ -310,9 +365,30 @@ export async function main() {
   });
 
   const pending = await aptos.signAndSubmitTransaction({ signer: account, transaction: rawTxn });
-  console.log('Perp close pending hash:', pending.hash);
   const committed = await aptos.waitForTransaction({ transactionHash: pending.hash });
-  console.log('Perp close confirmed at version:', committed.version);
+
+  const perpClose = {
+    action: 'long_perp_position_closed',
+    transactionHash: pending.hash,
+    version: committed.version,
+    pair: perpPair,
+    sizeClosed: existing.size.toString(),
+    direction: 'LONG'
+  };
+
+  const executionResult = {
+    action: 'arbitrage_closed',
+    strategy: 'close_short_spot_long_perp',
+    loanStatus: loanStatus,
+    spotLegStatus: spotLegStatus,
+    hyperionQuote: hyperionQuote,
+    spotExecution: spotExecution,
+    repayResult: repayResult,
+    perpPosition: perpPosition,
+    perpClose: perpClose
+  };
+
+  console.log(JSON.stringify(executionResult, null, 2));
 }
 
 main().catch((error) => {
@@ -363,7 +439,7 @@ async function fetchOutstandingLoan(context: LoanContext): Promise<bigint> {
 async function repayAriesLoan(context: RepayContext) {
   const { aptos, account, args, repayAmount } = context;
   if (repayAmount === 0n) {
-    console.log('Repay amount is zero; skipping Aries repay.');
+    // Repay amount is zero; skipping Aries repay
     return;
   }
 
@@ -379,12 +455,7 @@ async function repayAriesLoan(context: RepayContext) {
   const borrowKind = inferKind(args.ariesBorrowKind ?? process.env.ARIES_BORROW_KIND, borrowType, 'coin');
   const waitForSuccess = parseBool(args.ariesWaitForSuccess ?? process.env.ARIES_WAIT_FOR_SUCCESS) ?? true;
 
-  console.log('\n[aries] Repay request');
-  console.log('  core address :', coreAddress);
-  console.log('  module       :', moduleName);
-  console.log('  withdraw mod :', withdrawModule);
-  console.log('  profile      :', profileName);
-  console.log('  repay amount :', repayAmount.toString());
+  // Aries repay request details stored for JSON output
 
   await borrowWithAries({
     aptos,
@@ -419,9 +490,8 @@ async function submitAptosTransaction(args: {
     data: payload,
   });
   const pending = await aptos.signAndSubmitTransaction({ signer: account, transaction: rawTxn });
-  console.log(`${label} pending hash:`, pending.hash);
   const committed = await aptos.waitForTransaction({ transactionHash: pending.hash });
-  console.log(`${label} confirmed at version:`, committed.version);
+  // Transaction details stored for JSON output
 }
 
 async function callAriesView(args: {

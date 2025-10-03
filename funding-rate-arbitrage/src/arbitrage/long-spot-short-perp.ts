@@ -168,7 +168,7 @@ function normalizeFa(address?: string): string {
 }
 
 function ensureWebSocketGlobal() {
-  const globalRef = globalThis as { WebSocket?: typeof WebSocket };
+  const globalRef = globalThis as unknown as { WebSocket?: typeof WebSocket };
   if (!globalRef.WebSocket) {
     globalRef.WebSocket = WebSocket as unknown as typeof WebSocket;
   }
@@ -227,13 +227,6 @@ export async function main() {
     Math.round(Number(spotOutHuman) * 10 ** spotOutDecimals),
   );
 
-  console.log('--- Hyperion Quote (amount-out mode) ---');
-  console.log('Network       :', hyperionNetwork);
-  console.log('Output token  :', spotToFa);
-  console.log('Output amount :', spotOutHuman);
-  console.log('Input token   :', spotFromFa);
-  console.log('Slippage (bps):', slippageBps);
-
   const quote = await sdk.Swap.estToAmount({
     from: spotFromFa,
     to: spotToFa,
@@ -243,17 +236,30 @@ export async function main() {
 
   const bestRoute = (quote as any)?.bestRoute ?? quote;
   if (!bestRoute?.path || bestRoute.path.length === 0) {
-    console.error('Hyperion returned no route. Raw response:');
-    console.dir(quote, { depth: null });
+    const errorResult = {
+      error: 'Hyperion returned no route',
+      rawResponse: quote
+    };
+    console.log(JSON.stringify(errorResult, null, 2));
     return;
   }
 
   const { amountIn, amountOut, path } = bestRoute;
   const amountInBase = BigInt(amountIn);
   const amountOutBase = BigInt(amountOut);
-  console.log('Hyperion route path:', path);
-  console.log('Amount in (base)  :', amountIn);
-  console.log('Amount out (base) :', amountOut);
+
+  const hyperionQuote = {
+    network: hyperionNetwork,
+    outputToken: spotToFa,
+    outputAmount: spotOutHuman,
+    inputToken: spotFromFa,
+    slippageBps: slippageBps,
+    routePath: path,
+    amountIn: amountIn,
+    amountOut: amountOut,
+    amountInBase: amountInBase.toString(),
+    amountOutBase: amountOutBase.toString()
+  };
 
   const slippagePercent = slippageBps / 100;
 
@@ -267,8 +273,13 @@ export async function main() {
       poolRoute: path ?? [],
       recipient: process.env.HYPERION_RECIPIENT ?? '',
     });
-    console.log('Spot payload:', payload);
-    console.log('Submit via Aptos SDK to execute spot leg.');
+
+    const spotExecution = {
+      action: 'spot_swap_payload_generated',
+      payload: payload,
+      message: 'Submit via Aptos SDK to execute spot leg.'
+    };
+    console.log(JSON.stringify(spotExecution, null, 2));
   }
 
   const requiredUsdc = amountInBase;
@@ -302,6 +313,8 @@ export async function main() {
   let gasRoundTripBpsUsed: number | undefined;
   let costInputs: MinFundingInputs | undefined;
   let costBreakdown: MinFundingBreakdown | undefined;
+  let costAnalysis: any = null;
+  let fundingAnalysis: any = null;
 
   if (holdAnalysisMode) {
     const userSpotRoundTripBps =
@@ -357,9 +370,7 @@ export async function main() {
               : ((openUsdc - closeUsdc) / openUsdc) * 100;
             const nonNegativePct = Math.max(roundTripCostPct, 0);
             autoSpotRoundTripBps = nonNegativePct * 100;
-            console.log(
-              `Estimated spot round-trip cost: ${autoSpotRoundTripBps.toFixed(2)} bps (Hyperion open/close)`,
-            );
+            // Store for later JSON output
           }
         }
       } catch (error) {
@@ -370,9 +381,7 @@ export async function main() {
     const takerFeeFraction = Number(pairInfo.takerFee) / 1_000_000;
     autoPerpRoundTripBps = takerFeeFraction * 2 * 10_000;
     if (Number.isFinite(autoPerpRoundTripBps)) {
-      console.log(
-        `Estimated perp round-trip cost: ${autoPerpRoundTripBps.toFixed(2)} bps (from Merkle fees)`,
-      );
+      // Store for later JSON output
     } else {
       autoPerpRoundTripBps = undefined;
       console.warn('Failed to auto-estimate perp round-trip cost from Merkle fees.');
@@ -394,50 +403,47 @@ export async function main() {
 
     costBreakdown = computeMinFundingBreakdown(costInputs);
 
-    console.log('\n[breakeven] Cost assumptions:');
-    if (spotRoundTripUsed !== undefined) {
-      const source = userSpotRoundTripBps !== undefined ? 'override' : 'auto';
-      console.log(
-        `  spot round-trip : ${spotRoundTripUsed.toFixed(2)} bps (${source})`,
-      );
-    } else {
-      console.warn('  spot round-trip : (missing, treated as 0 bps)');
-    }
-    if (perpRoundTripUsed !== undefined) {
-      const source = userPerpRoundTripBps !== undefined ? 'override' : 'auto';
-      console.log(
-        `  perp round-trip : ${perpRoundTripUsed.toFixed(2)} bps (${source})`,
-      );
-    } else {
-      console.warn('  perp round-trip : (missing, treated as 0 bps)');
-    }
-    const gasSource = gasRoundTripBpsUsed !== undefined ? 'override' : 'default';
-    console.log(
-      `  gas round-trip  : ${(gasRoundTripBpsUsed ?? 0).toFixed(2)} bps (${gasSource})`,
-    );
-    console.log(
-      `  trading cost/hr : ${costBreakdown.tradingCostPctPerHour.toFixed(6)} %/hr (assuming hold ${costBreakdown.normalizedInputs.holdHours}h)`,
-    );
-    console.log(
-      `  capital carry   : ${costBreakdown.capitalCostPctPerHour.toFixed(6)} %/hr (APR ${costBreakdown.normalizedInputs.capitalAprPct.toFixed(2)}%)`,
-    );
-    console.log(
-      `  breakeven/hr    : ${costBreakdown.breakevenPctPerHour.toFixed(6)} %/hr`,
-    );
-    if (costBreakdown.riskBufferPctPerHour !== 0) {
-      console.log(
-        `  risk buffer     : ${costBreakdown.riskBufferPctPerHour.toFixed(6)} %/hr (z ${costBreakdown.normalizedInputs.zScore.toFixed(2)} · σ ${costBreakdown.normalizedInputs.fundingStdPctPerHr.toFixed(4)}%/hr)`,
-      );
-    } else {
-      console.log('  risk buffer     : 0.000000 %/hr');
-    }
-    if (costBreakdown.basisPremiumPctPerHour !== 0) {
-      console.log(
-        `  basis premium   : ${costBreakdown.basisPremiumPctPerHour.toFixed(6)} %/hr`,
-      );
-    } else {
-      console.log('  basis premium   : 0.000000 %/hr');
-    }
+    costAnalysis = {
+      spotRoundTrip: {
+        value: spotRoundTripUsed,
+        source: userSpotRoundTripBps !== undefined ? 'override' : 'auto',
+        unit: 'bps'
+      },
+      perpRoundTrip: {
+        value: perpRoundTripUsed,
+        source: userPerpRoundTripBps !== undefined ? 'override' : 'auto',
+        unit: 'bps'
+      },
+      gasRoundTrip: {
+        value: gasRoundTripBpsUsed ?? 0,
+        source: gasRoundTripBpsUsed !== undefined ? 'override' : 'default',
+        unit: 'bps'
+      },
+      tradingCostPerHour: {
+        value: costBreakdown.tradingCostPctPerHour,
+        unit: '%/hr',
+        holdHours: costBreakdown.normalizedInputs.holdHours
+      },
+      capitalCostPerHour: {
+        value: costBreakdown.capitalCostPctPerHour,
+        unit: '%/hr',
+        apr: costBreakdown.normalizedInputs.capitalAprPct
+      },
+      breakevenPerHour: {
+        value: costBreakdown.breakevenPctPerHour,
+        unit: '%/hr'
+      },
+      riskBufferPerHour: {
+        value: costBreakdown.riskBufferPctPerHour,
+        unit: '%/hr',
+        zScore: costBreakdown.normalizedInputs.zScore,
+        fundingStd: costBreakdown.normalizedInputs.fundingStdPctPerHr
+      },
+      basisPremiumPerHour: {
+        value: costBreakdown.basisPremiumPctPerHour,
+        unit: '%/hr'
+      }
+    };
   }
 
   const minSize = pairInfo.minimumPositionSize as unknown as bigint;
@@ -454,37 +460,48 @@ export async function main() {
       MERKLE_FUNDING_RATE_SCALE;
     const fundingPctPerHourActual = (fundingRatePerDay / HOURS_IN_DAY) * 100;
 
-    console.log(
-      `\n[breakeven] Current funding approx: ${fundingPctPerHourActual.toFixed(6)} %/hr (pair state)`,
-    );
-
     const fundingForHold = holdAnalysisMode === 'auto'
       ? fundingPctPerHourActual
       : manualFundingRatePct ?? fundingPctPerHourActual;
-
-    if (holdAnalysisMode === 'manual' && manualFundingRatePct !== undefined) {
-      console.log(
-        `[breakeven] Manual funding input : ${manualFundingRatePct.toFixed(6)} %/hr`,
-      );
-    }
 
     const breakeven = computeBreakevenHoldDuration(costInputs ?? {}, fundingForHold);
 
     const tradingCostPct = breakeven.tradingCostPct;
     const netFundingPerHour = breakeven.netFundingPerHour;
 
+    fundingAnalysis = {
+      currentFundingRate: {
+        value: fundingPctPerHourActual,
+        unit: '%/hr',
+        source: 'pair_state'
+      },
+      fundingForHold: {
+        value: fundingForHold,
+        unit: '%/hr',
+        mode: holdAnalysisMode,
+        manualInput: manualFundingRatePct
+      },
+      breakeven: {
+        possible: breakeven.breakevenPossible,
+        holdHours: breakeven.holdHours,
+        holdDays: breakeven.holdDays,
+        tradingCostPct: tradingCostPct,
+        netFundingPerHour: netFundingPerHour
+      }
+    };
+
     if (!breakeven.breakevenPossible || netFundingPerHour <= 0) {
-      console.warn(
-        `[breakeven] Funding ${fundingForHold.toFixed(6)} %/hr cannot cover ${tradingCostPct.toFixed(4)}% trading + carry costs. Aborting.`,
-      );
+      const abortResult = {
+        action: 'abort',
+        reason: 'insufficient_funding',
+        fundingRate: fundingForHold,
+        tradingCost: tradingCostPct,
+        netFunding: netFundingPerHour,
+        analysis: fundingAnalysis
+      };
+      console.log(JSON.stringify(abortResult, null, 2));
       return;
     }
-
-    const holdHours = breakeven.holdHours ?? 0;
-    const holdDays = breakeven.holdDays ?? holdHours / 24;
-    console.log(
-      `[breakeven] Required hold: ${holdHours.toFixed(2)} hours (~${holdDays.toFixed(2)} days) to recover ${tradingCostPct.toFixed(4)}% round-trip cost. Net funding after carry: ${netFundingPerHour.toFixed(6)} %/hr`,
-    );
   }
 
   const sizeDelta = requiredUsdc > minSize ? requiredUsdc : minSize;
@@ -497,22 +514,33 @@ export async function main() {
     ? collateralInput
     : minCollateral;
 
-  console.log('\n--- Merkle Short Leg ---');
-  console.log('Pair            :', perpPair);
-  console.log('Size Delta (6d) :', sizeDelta.toString());
-  console.log('Collateral (6d):', collateralDelta.toString());
+  const perpLeg = {
+    pair: perpPair,
+    sizeDelta: sizeDelta.toString(),
+    collateralDelta: collateralDelta.toString(),
+    direction: 'SHORT',
+    submitPerp: submitPerp
+  };
 
   if (!submitPerp) {
-    console.log('Perp leg dry run (pass --submit-perp true to execute).');
+    const dryRunResult = {
+      action: 'dry_run',
+      message: 'Perp leg dry run (pass --submit-perp true to execute).',
+      perpLeg: perpLeg,
+      hyperionQuote: hyperionQuote,
+      costAnalysis: costAnalysis,
+      fundingAnalysis: fundingAnalysis
+    };
+    console.log(JSON.stringify(dryRunResult, null, 2));
     return;
   }
 
   // Check and deposit USDC to Merkle if needed
   const merkleBalance = await merkle.getUsdcBalance({ accountAddress: account.accountAddress });
+  let depositResult = null;
+
   if (merkleBalance < collateralDelta) {
     const deficit = collateralDelta - merkleBalance;
-    console.log(`\nMerkle USDC balance: ${Number(merkleBalance) / 1_000_000} USDC`);
-    console.log(`Need to deposit: ${Number(deficit) / 1_000_000} USDC`);
 
     // Deposit USDC to Merkle vault using SDK
     const depositPayload = await merkle.payloads.depositUsdc({
@@ -531,9 +559,13 @@ export async function main() {
     await aptos.waitForTransaction({
       transactionHash: depositPending.hash,
     });
-    console.log('✓ USDC deposited to Merkle, tx:', depositPending.hash);
-  } else {
-    console.log(`✓ Sufficient Merkle balance: ${Number(merkleBalance) / 1_000_000} USDC`);
+
+    depositResult = {
+      action: 'usdc_deposited',
+      deficit: deficit.toString(),
+      transactionHash: depositPending.hash,
+      merkleBalanceBefore: merkleBalance.toString()
+    };
   }
 
   const payload = await merkle.payloads.placeMarketOrder({
@@ -554,9 +586,26 @@ export async function main() {
     signer: account,
     transaction: rawTxn,
   });
-  console.log('Perp pending hash:', pending.hash);
   const committed = await aptos.waitForTransaction({ transactionHash: pending.hash });
-  console.log('Perp confirmed at version:', committed.version);
+
+  const executionResult = {
+    action: 'arbitrage_executed',
+    strategy: 'long_spot_short_perp',
+    hyperionQuote: hyperionQuote,
+    perpLeg: perpLeg,
+    costAnalysis: costAnalysis,
+    fundingAnalysis: fundingAnalysis,
+    depositResult: depositResult,
+    perpTransaction: {
+      hash: pending.hash,
+      version: committed.version,
+      pair: perpPair,
+      sizeDelta: sizeDelta.toString(),
+      collateralDelta: collateralDelta.toString()
+    }
+  };
+
+  console.log(JSON.stringify(executionResult, null, 2));
 }
 
 main().catch((error) => {

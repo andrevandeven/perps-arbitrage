@@ -26,6 +26,18 @@ const DEFAULT_ARIES_CORE_ADDRESS = '0x9770fa9c725cbd97eb50b2be5f7416efdfd1f1554b
 const DEFAULT_WRAPPED_USDC = `${DEFAULT_ARIES_CORE_ADDRESS}::wrapped_coins::WrappedUSDC`;
 const ARIES_USDC_DECIMALS = 6;
 
+/**
+ * Get the current funding rate for a given pair
+ * @param merkle - Merkle client instance
+ * @param pairId - Trading pair ID (e.g., 'APT_USD')
+ * @returns Funding rate as a decimal (e.g., 0.0001 for 0.01%)
+ */
+export async function getFundingRate(pairId: string = 'APT_USD'): Promise<number> {
+  const merkle = new MerkleClient(await MerkleClientConfig.mainnet());
+  const pairState = await merkle.getPairState({ pairId });
+  return Number(pairState.currentFundingRate) / 1_000_000;
+}
+
 
 function ensureWebSocketGlobal() {
   const globalRef = globalThis as unknown as { WebSocket?: typeof WebSocket };

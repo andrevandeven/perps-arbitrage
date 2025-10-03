@@ -28,7 +28,7 @@ const ARIES_USDC_DECIMALS = 6;
 
 
 function ensureWebSocketGlobal() {
-  const globalRef = globalThis as { WebSocket?: typeof WebSocket };
+  const globalRef = globalThis as unknown as { WebSocket?: typeof WebSocket };
   if (!globalRef.WebSocket) {
     globalRef.WebSocket = WebSocket as unknown as typeof WebSocket;
   }
@@ -68,7 +68,9 @@ async function fetchPriceFromFeed(merkle: MerkleClient, pairId: string, timeoutM
     console.warn(`Unable to fetch ${pairId} price:`, (error as Error).message);
   } finally {
     try {
-      await iterator?.return?.();
+      if (iterator) {
+        await iterator.return?.();
+      }
     } catch (err) {
       // ignore controller already closed errors
     }
@@ -111,18 +113,21 @@ async function showStatus(merkle: MerkleClient, account: Account) {
   };
 
   const pairIds = Array.from(
-    new Set(positions.map((position) => parsePairId(position.pairType))),
+    new Set(positions.map((position: any) => parsePairId(position.pairType))),
   );
 
-  const markPrices = await fetchMarkPrices(merkle, pairIds);
+  const markPrices = await fetchMarkPrices(merkle, pairIds as string[]);
 
-  console.log('Account:', account.accountAddress.toString());
-  console.log('Free USDC balance:', formatUsdc(balance));
+  const statusData = {
+    account: account.accountAddress.toString(),
+    freeUsdcBalance: formatUsdc(balance),
+    positions: [] as any[],
+    orders: [] as any[]
+  };
 
   if (positions.length === 0) {
-    console.log('No open positions.');
+    statusData.positions = [];
   } else {
-    console.log('Open positions:');
     for (const position of positions) {
       const pairId = parsePairId(position.pairType);
       const pairState = await loadPairState(pairId);
@@ -150,45 +155,48 @@ async function showStatus(merkle: MerkleClient, account: Account) {
       );
       const netPnl = pnl - fundingFee - rolloverFee;
 
-      console.log('---');
-      console.log('Pair:', pairId);
-      console.log('Direction:', position.isLong ? 'LONG' : 'SHORT');
-      console.log('Size (USDC):', formatUsdc(position.size));
-      console.log('Collateral (USDC):', formatUsdc(position.collateral));
-      console.log('Average price:', formatPrice(position.avgPrice));
-      console.log('Mark price:', formatNumber(markPrice, 4));
-      console.log('Unrealized PnL (USDC):', formatNumber(pnl));
-      console.log('Funding fee accrued (USDC):', formatNumber(fundingFee));
-      console.log('Rollover fee accrued (USDC):', formatNumber(rolloverFee));
-      console.log('Net PnL after fees (USDC):', formatNumber(netPnl));
-      console.log('Last exec timestamp:', new Date(position.lastExecuteTimestamp * 1000).toISOString());
-      console.log('Acc funding per size:', formatFunding(position.accFundingFeePerSize));
-      console.log('Acc rollover per collateral:', formatFunding(position.accRolloverFeePerCollateral));
+      statusData.positions.push({
+        pair: pairId,
+        direction: position.isLong ? 'LONG' : 'SHORT',
+        sizeUsdc: formatUsdc(position.size),
+        collateralUsdc: formatUsdc(position.collateral),
+        averagePrice: formatPrice(position.avgPrice),
+        markPrice: formatNumber(markPrice, 4),
+        unrealizedPnlUsdc: formatNumber(pnl),
+        fundingFeeAccruedUsdc: formatNumber(fundingFee),
+        rolloverFeeAccruedUsdc: formatNumber(rolloverFee),
+        netPnlAfterFeesUsdc: formatNumber(netPnl),
+        lastExecTimestamp: new Date(position.lastExecuteTimestamp * 1000).toISOString(),
+        accFundingPerSize: formatFunding(position.accFundingFeePerSize),
+        accRolloverPerCollateral: formatFunding(position.accRolloverFeePerCollateral)
+      });
     }
   }
 
   if (orders.length === 0) {
-    console.log('No resting orders.');
+    statusData.orders = [];
   } else {
-    console.log('Open orders:');
     for (const order of orders) {
-      console.log('---');
-      console.log('Order ID:', order.orderId);
-      console.log('Pair:', parsePairId(order.pairType));
-      console.log('Market?', order.isMarket);
-      console.log('Direction:', order.isLong ? 'LONG' : 'SHORT');
-      console.log('Increase?', order.isIncrease);
-      console.log('Size delta (USDC):', formatUsdc(order.sizeDelta));
-      console.log('Collateral delta (USDC):', formatUsdc(order.collateralDelta));
-      console.log('Price:', formatPrice(order.price));
-      console.log('Created at:', new Date(order.createdTimestamp * 1000).toISOString());
+      statusData.orders.push({
+        orderId: order.orderId,
+        pair: parsePairId(order.pairType),
+        isMarket: order.isMarket,
+        direction: order.isLong ? 'LONG' : 'SHORT',
+        isIncrease: order.isIncrease,
+        sizeDeltaUsdc: formatUsdc(order.sizeDelta),
+        collateralDeltaUsdc: formatUsdc(order.collateralDelta),
+        price: formatPrice(order.price),
+        createdAt: new Date(order.createdTimestamp * 1000).toISOString()
+      });
     }
   }
+
+  return statusData;
 }
 
 async function closePosition(merkle: MerkleClient, aptos: Aptos, account: Account, pairId: string) {
   const positions = await merkle.getPositions({ address: account.accountAddress });
-  const target = positions.find((pos) => parsePairId(pos.pairType) === pairId);
+  const target = positions.find((pos: any) => parsePairId(pos.pairType) === pairId);
   if (!target || target.size === 0n) {
     console.log(`No open position found for ${pairId}.`);
     return;
@@ -225,15 +233,36 @@ export async function main() {
   if (command === 'close') {
     const pairId = pairArg ?? 'BTC_USD';
     await closePosition(merkle, aptos, account, pairId);
-    await showStatus(merkle, account);
-    await showAriesOverview(aptos, account);
-    await showHyperionOverview();
+
+    // After closing, get updated status
+    const statusData = await showStatus(merkle, account);
+    const ariesData = await showAriesOverview(aptos, account);
+    const hyperionData = await showHyperionOverview();
+
+    const result = {
+      action: 'position_closed',
+      pairId,
+      merkle: statusData,
+      aries: ariesData,
+      hyperion: hyperionData
+    };
+
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 
-  await showStatus(merkle, account);
-  await showAriesOverview(aptos, account);
-  await showHyperionOverview();
+  // Get all status data
+  const statusData = await showStatus(merkle, account);
+  const ariesData = await showAriesOverview(aptos, account);
+  const hyperionData = await showHyperionOverview();
+
+  const result = {
+    merkle: statusData,
+    aries: ariesData,
+    hyperion: hyperionData
+  };
+
+  console.log(JSON.stringify(result, null, 2));
 }
 
 main().catch((error) => {
@@ -352,7 +381,7 @@ async function callAriesView(
   args: any[],
 ) {
   const fqn = `${coreAddress}::${moduleName}::${functionName}`;
-  return aptos.view({ payload: { function: fqn, typeArguments, functionArguments: args } });
+  return aptos.view({ payload: { function: fqn as any, typeArguments, functionArguments: args } });
 }
 
 async function getTypeInfo(aptos: Aptos, typeTag: string) {
@@ -422,10 +451,18 @@ async function showAriesOverview(aptos: Aptos, account: Account) {
   const wrappedType = process.env.ARIES_WRAPPED_COLLATERAL_TYPE ?? DEFAULT_WRAPPED_USDC;
   const profileName = process.env.ARIES_PROFILE_NAME ?? 'main';
 
-  console.log('\n--- Aries Positions ---');
+  const ariesData = {
+    wrappedUsdcCoinBalance: '0',
+    profileExists: false,
+    profileAddress: null as string | null,
+    wrappedUsdcDeposited: '0',
+    wrappedUsdcShares: '0',
+    aptBorrowed: '0',
+    aptShares: '0'
+  };
 
   try {
-    const coinStoreType = `0x1::coin::CoinStore<${wrappedType}>`;
+    const coinStoreType = `0x1::coin::CoinStore<${wrappedType}>` as any;
     let wrappedBalance = 0n;
     try {
       const coinStore = await aptos.getAccountResource({
@@ -438,53 +475,59 @@ async function showAriesOverview(aptos: Aptos, account: Account) {
       // resource missing means zero balance; ignore
     }
 
-    console.log('Wrapped USDC coin balance:', formatWithDecimals(wrappedBalance, ARIES_USDC_DECIMALS));
+    ariesData.wrappedUsdcCoinBalance = formatWithDecimals(wrappedBalance, ARIES_USDC_DECIMALS);
 
     const accountHex = account.accountAddress.toString();
     const views = [
       {
-        label: 'Profile exists',
+        key: 'profileExists',
         module: 'profile',
         name: 'profile_exists',
         typeArgs: [],
-        args: [accountHex, profileName],
-        format: (result: unknown[]) => `Profile exists: ${result?.[0] ? 'true' : 'false'}`,
+        args: [accountHex, profileName] as any,
+        extract: (result: unknown[]) => result?.[0] ? true : false,
       },
       {
-        label: 'Profile address',
+        key: 'profileAddress',
         module: 'profile',
         name: 'get_profile_address',
         typeArgs: [],
-        args: [accountHex, profileName],
-        format: (result: unknown[]) => `Profile address: ${String(result?.[0] ?? 'unknown')}`,
+        args: [accountHex, profileName] as any,
+        extract: (result: unknown[]) => String(result?.[0] ?? 'unknown'),
       },
       {
-        label: 'Wrapped USDC deposit',
+        key: 'wrappedUsdcDeposit',
         module: 'profile',
         name: 'profile_deposit',
         typeArgs: [wrappedType],
-        args: [accountHex, profileName],
-        format: (result: unknown[]) => {
+        args: [accountHex, profileName] as any,
+        extract: (result: unknown[]) => {
           const values = Array.isArray(result) ? result : [];
           const amountRaw = values[0] ?? '0';
           const sharesRaw = values[1] ?? '0';
           const amount = BigInt(amountRaw);
           const shares = BigInt(sharesRaw);
-          return `Wrapped USDC deposited: ${formatAssetAmount(amount, ARIES_USDC_DECIMALS, 'USDC')} (shares ${shares.toString()})`;
+          return {
+            amount: formatAssetAmount(amount, ARIES_USDC_DECIMALS, 'USDC'),
+            shares: shares.toString()
+          };
         },
       },
       {
-        label: 'APT borrowed',
+        key: 'aptBorrowed',
         module: 'profile',
         name: 'profile_loan',
         typeArgs: ['0x1::aptos_coin::AptosCoin'],
-        args: [accountHex, profileName],
-        format: (result: unknown[]) => {
+        args: [accountHex, profileName] as any,
+        extract: (result: unknown[]) => {
           const v = Array.isArray(result) ? result : [];
           const shares = BigInt(v[0] ?? '0');  // shares FIRST
           const mantissa = BigInt(v[1] ?? '0');  // 1e18 mantissa SECOND
           const baseUnits = mantissa / (10n ** 19n); // 1e18 -> 1e8
-          return `APT borrowed: ${formatAssetAmount(baseUnits, 8, 'APT')} (shares ${shares.toString()})`;
+          return {
+            amount: formatAssetAmount(baseUnits, 8, 'APT'),
+            shares: shares.toString()
+          };
         },
       },
     ];
@@ -500,20 +543,36 @@ async function showAriesOverview(aptos: Aptos, account: Account) {
           view.args,
         );
         const values = Array.isArray(result) ? result : [];
-        const output = await view.format(values);
-        console.log(` ${output}`);
+        const extracted = view.extract(values);
+
+        if (view.key === 'profileExists') {
+          ariesData.profileExists = extracted as boolean;
+        } else if (view.key === 'profileAddress') {
+          ariesData.profileAddress = extracted as string;
+        } else if (view.key === 'wrappedUsdcDeposit') {
+          const data = extracted as { amount: string; shares: string };
+          ariesData.wrappedUsdcDeposited = data.amount;
+          ariesData.wrappedUsdcShares = data.shares;
+        } else if (view.key === 'aptBorrowed') {
+          const data = extracted as { amount: string; shares: string };
+          ariesData.aptBorrowed = data.amount;
+          ariesData.aptShares = data.shares;
+        }
       } catch (error) {
         if (process.env.ARIES_DEBUG === 'true') {
-          console.warn(` ${view.label} unavailable:`, (error as Error).message);
+          console.warn(` ${view.key} unavailable:`, (error as Error).message);
         }
       }
     }
   } catch (error) {
     console.warn('Failed to fetch Aries profile information:', (error as Error).message);
   }
+
+  return ariesData;
 }
 
 async function showHyperionOverview() {
-  console.log('\n--- Hyperion Positions ---');
-  console.log('Hyperion spot swaps are stateless; no open positions to display.');
+  return {
+    message: 'Hyperion spot swaps are stateless; no open positions to display.'
+  };
 }

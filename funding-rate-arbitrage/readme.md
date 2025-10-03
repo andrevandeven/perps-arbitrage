@@ -1,74 +1,171 @@
-# Funding Rate Arbitrage – Merkle SDK Bootstrap
+# Funding Rate Arbitrage Telegram Bot
 
-This project bootstraps a Merkle Trade integration on Aptos. The initial script connects to the REST and WebSocket APIs so you can build a funding-rate arbitrage bot on top.
+This project provides an automated Telegram bot for funding rate arbitrage on Aptos using Merkle Trade perpetuals and Hyperion spot DEX. The bot automatically monitors deposits, executes arbitrage strategies, and manages position closures.
+
+## Features
+
+- **Automated Deposit Monitoring**: Watches for USDC deposits and automatically executes arbitrage
+- **Funding Rate Analysis**: Analyzes current funding rates to determine optimal strategy
+- **Dual Strategy Support**: 
+  - Long Spot + Short Perp (when funding rate is positive)
+  - Short Spot + Long Perp (when funding rate is negative)
+- **Position Management**: View positions, close positions, and withdraw profits
+- **Aries Protocol Integration**: Borrows APT for short strategies
+- **Real-time Notifications**: Telegram updates for all actions
 
 ## Setup
 
-1. Install dependencies:
-   ```bash
-   npm install
-   # or
-   yarn install
-   ```
-2. Configure environment:
-   ```bash
-   cp .env.example .env
-   ```
-   Fill `PRIVATE_KEY` with your Aptos **mainnet** private key (0x-prefixed hex).
-## Usage
+### 1. Install Dependencies
 
-Run the bootstrap script:
 ```bash
-npm run start
-# watch mode
-npm run dev
+npm install
 ```
 
-Run positions overview:
+### 2. Environment Configuration
+
+```bash
+cp .env.example .env
+```
+
+Fill in your environment variables:
+
+```env
+# Required
+PRIVATE_KEY=0x...                    # Your Aptos mainnet private key
+TELEGRAM_BOT_TOKEN=...               # Your Telegram bot token
+APTOS_API_KEY=...                    # Aptos API key for Hyperion
+
+# Optional (defaults provided)
+ARIES_CORE_ADDRESS=0x9770fa9c725cbd97eb50b2be5f7416efdfd1f1554beb0750d4dae4c64e860da3
+ARIES_WRAPPED_COLLATERAL_TYPE=0x9770fa9c725cbd97eb50b2be5f7416efdfd1f1554beb0750d4dae4c64e860da3::wrapped_coins::WrappedUSDC
+ARIES_PROFILE_NAME=main
+```
+
+### 3. Start the Bot
+
+```bash
+# Start the Telegram bot
+node telegram-bot/bot.js
+```
+
+## Bot Commands
+
+### `/start`
+Initialize the bot and get your wallet address for deposits.
+
+### `/see_position`
+View your current positions, balances, and P&L across:
+- **Merkle Trade**: Perpetual positions and USDC balance
+- **Aries Protocol**: Borrowed APT and deposited USDC
+- **Hyperion**: Spot trading status
+
+### `/close_position <payout_address>`
+Close all open positions and send profits to the specified address:
+- Automatically detects position direction (LONG/SHORT)
+- Closes both spot and perpetual legs
+- Repays any outstanding Aries loans
+- Sends all USDC to your payout address
+
+Example:
+```
+/close_position 0x1234567890abcdef...
+```
+
+## How It Works
+
+### 1. Deposit Monitoring
+- Bot watches for USDC deposits to your wallet
+- When a deposit is detected, it automatically analyzes the current funding rate
+- Executes the appropriate arbitrage strategy
+
+### 2. Strategy Selection
+- **Positive Funding Rate**: Long APT on Hyperion + Short APT perp on Merkle
+- **Negative Funding Rate**: Short APT (borrow from Aries) + Long APT perp on Merkle
+
+### 3. Position Management
+- Bot monitors positions and funding rates
+- Provides real-time updates via Telegram
+- Handles both opening and closing positions
+
+## Manual Commands
+
+You can also run arbitrage strategies manually:
+
+### Long Spot + Short Perp
+```bash
+npm run arb:long-spot-short-perp -- \
+  --spot-out 5 \
+  --perp-pair APT_USD \
+  --perp-collateral 5 \
+  --min-funding auto \
+  --submit-spot true \
+  --submit-perp true
+```
+
+### Short Spot + Long Perp
+```bash
+npm run arb:short-spot-long-perp -- \
+  --spot-out 5 \
+  --perp-pair APT_USD \
+  --perp-collateral 5 \
+  --min-funding auto \
+  --submit-spot true \
+  --submit-perp true
+```
+
+### Close Positions
+```bash
+# Close long spot + short perp
+npm run arb:close-long-spot-short-perp -- --perp-pair APT_USD
+
+# Close short spot + long perp  
+npm run arb:close-short-spot-long-perp -- --perp-pair APT_USD
+```
+
+### View Positions
 ```bash
 npm run positions
-# close a specific position (default BTC_USD)
-npm run positions -- close BTC_USD
 ```
 
-Run Hyperion pool listing:
-```bash
-npm run hyperion:list-pools
-```
+## Strategy Parameters
 
-Run combined spot/perp helper:
-```bash
-npm run arb:long-spot-short-perp -- \\
-  --spot-from-fa 0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b \\
-  --spot-to-fa   0xa \\
-  --spot-out 100 \\
-  --spot-out-decimals 8 \\
-  --network mainnet \\
-  --safe-mode false \\
-  --perp-pair APT_USD \\
-  --perp-network mainnet \\
-  --min-funding auto
-```
-Passing `--min-funding auto` prints the hold duration needed to break even given current funding and cost assumptions. Provide a numeric value (e.g. `--min-funding 0.015`) to evaluate the hold time at a hypothetical %/hr funding rate. Defaults use Hyperion’s FA addresses per network (APT mainnet `0xa`, USDC mainnet `0xbae207…`, etc.), so you can omit the flags once you’re satisfied with the preset pairings.
+- `--spot-out`: Amount to trade on spot (APT amount)
+- `--perp-pair`: Perpetual pair (default: APT_USD)
+- `--perp-collateral`: Collateral for perp position (USDC)
+- `--min-funding`: Minimum funding rate threshold
+- `--submit-spot`: Execute spot transactions (true/false)
+- `--submit-perp`: Execute perp transactions (true/false)
 
-Run Merkle USDC faucet (**testnet only**, requires testnet key):
-```bash
-npm run faucet
-```
+## Safety Features
 
-The bootstrap script:
-- Instantiates Merkle REST + WebSocket clients and the Aptos SDK
-- Fetches summary, funding rate, and BTC market info
-- Subscribes to a single BTC price update over WebSocket
-- Places a small test market order if USDC balance allows
-- Prints the Aptos chain ID (ensuring the signer works)
-- Check live balances and open interest with `npm run positions`
+- **Dry Run Mode**: Test strategies without executing transactions
+- **Slippage Protection**: Configurable slippage tolerance
+- **Position Limits**: Automatic position sizing based on funding rates
+- **Error Handling**: Comprehensive error reporting and recovery
 
+## Troubleshooting
 
-## Next Steps
+### Bot Not Responding
+- Check that your Telegram bot token is correct
+- Verify your private key is properly formatted (0x-prefixed hex)
+- Ensure all environment variables are set
 
-- Add funding-rate calculations via `@merkletrade/ts-sdk` helpers in `calc/`
-- Tune trade sizing/logic before submitting live orders
-- Persist positions/orders and incorporate arbitrage logic across venues
+### Position Not Closing
+- Use `/see_position` to check current positions
+- Verify the position direction matches the close function
+- Check for sufficient USDC balance for gas fees
 
-Happy hacking!
+### Funding Rate Issues
+- Bot automatically detects funding rates
+- Manual strategies can specify `--min-funding auto` for automatic analysis
+- Use `npm run positions` to see current funding rates
+
+## Support
+
+For issues or questions:
+1. Check the bot logs for error messages
+2. Use `/see_position` to verify account status
+3. Test with small amounts first
+4. Ensure sufficient USDC balance for gas fees
+
+Happy arbitraging! 🚀

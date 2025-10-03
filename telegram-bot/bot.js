@@ -364,7 +364,7 @@ bot.command("set_wallet", async (ctx) => {
     );
     await ctx.reply(
       `Please fund me so I can trade USDC for your wallet ${normalized}. ` +
-        `If you need my deposit address in the future, just run /address.`
+      `If you need my deposit address in the future, just run /address.`
     );
     // start polling deposits every 10s now that we have a wallet
     startDepositWatcher();
@@ -429,7 +429,7 @@ bot.on("text", async (ctx, next) => {
     await ctx.reply(`Nice — your wallet ${normalized} is saved.`);
     await ctx.reply(
       `Please fund the trading bot with USDC so it can start trading for you. ` +
-        `If you need the bot's deposit address, just run /address.`
+      `If you need the bot's deposit address, just run /address.`
     );
     // start polling deposits every 10s now that we have a wallet
     startDepositWatcher();
@@ -591,8 +591,8 @@ bot.command("history", async (ctx) => {
         r.type === "deposit"
           ? "IN +"
           : r.type === "withdraw"
-          ? "OUT -"
-          : "XFER";
+            ? "OUT -"
+            : "XFER";
       return `${kind} ${amt} USDC • v${r.version} • ${new Date(
         r.time
       ).toISOString()}\n${explorerTxnUrl(r.hash || r.version)}`;
@@ -650,9 +650,9 @@ function renderPositionSummary(data) {
     const fees = sumFees(p);
     const dir = p.direction || "";
     const pair = p.pair || "";
-    const ts = p.lastExecTimestamp ? new Date(p.lastExecTimestamp).toISOString().replace(".000Z","Z") : "N/A";
+    const ts = p.lastExecTimestamp ? new Date(p.lastExecTimestamp).toISOString().replace(".000Z", "Z") : "N/A";
     const sign = net >= 0 ? "+" : "−";
-    return `${i+1}. ${pair} ${dir} — size $${fmtUSD(size)}, collateral $${fmtUSD(col)} (${fmtUSD(lev,2)}x), entry ${fmtUSD(entry,4)}, mark ${fmtUSD(mark,4)}, PnL ${sign}$${fmtUSD(Math.abs(net),4)} (U:$${fmtUSD(upnl,4)}, fees $${fmtUSD(fees,4)}), last exec ${ts}`;
+    return `${i + 1}. ${pair} ${dir} — size $${fmtUSD(size)}, collateral $${fmtUSD(col)} (${fmtUSD(lev, 2)}x), entry ${fmtUSD(entry, 4)}, mark ${fmtUSD(mark, 4)}, PnL ${sign}$${fmtUSD(Math.abs(net), 4)} (U:$${fmtUSD(upnl, 4)}, fees $${fmtUSD(fees, 4)}), last exec ${ts}`;
   });
 
   return `${header}\n\nOpen positions (${positions.length}):\n` + lines.join("\n");
@@ -672,23 +672,41 @@ bot.command("see_position", async (ctx) => {
 /* =================== Deposit watcher (webscraper) =================== */
 async function pollDepositsOnce() {
   try {
-    if (!savedWallet) return;
+    console.log('🔍 [DEBUG] pollDepositsOnce: Starting deposit check');
+    if (!savedWallet) {
+      console.log('⚠️ [DEBUG] pollDepositsOnce: No saved wallet, skipping');
+      return;
+    }
+    console.log('📊 [DEBUG] pollDepositsOnce: Checking latest deposit for wallet:', savedWallet);
     const [version, deposit] = await checkLatestDeposit(savedWallet, address);
-    if (version === null) return;
-    if (seenVersions.has(version)) return;
+    console.log('📈 [DEBUG] pollDepositsOnce: Latest deposit result - version:', version, 'deposit:', deposit);
+    if (version === null) {
+      console.log('ℹ️ [DEBUG] pollDepositsOnce: No new version found');
+      return;
+    }
+    if (seenVersions.has(version)) {
+      console.log('🔄 [DEBUG] pollDepositsOnce: Version already seen:', version);
+      return;
+    }
     seenVersions.add(version);
+    console.log('✅ [DEBUG] pollDepositsOnce: Added version to seen set:', version);
     if (deposit && deposit > 0) {
+      console.log('💰 [DEBUG] pollDepositsOnce: Processing deposit:', deposit, 'USDC');
       totalDeposit += deposit;
+      console.log('📊 [DEBUG] pollDepositsOnce: Updated total deposit to:', totalDeposit, 'USDC');
       if (savedChatId) {
+        console.log('📱 [DEBUG] pollDepositsOnce: Sending notification to chat:', savedChatId);
         await bot.telegram.sendMessage(
           savedChatId,
           `Deposit detected: +${deposit} USDC\nVersion: ${version}\nTotal: ${totalDeposit} USDC`
         );
       }
-      
+
       // === Immediately deploy the deposit into a position based on funding rate ===
       try {
+        console.log('🎯 [DEBUG] pollDepositsOnce: Getting funding rate for arbitrage decision');
         const fr = await getFundingRate(); // positive => long spot / short perp; negative => short spot / long perp
+        console.log('📊 [DEBUG] pollDepositsOnce: Current funding rate:', fr);
         const baseArgs = [
           "--spot-out",
           "5",
@@ -705,17 +723,21 @@ async function pollDepositsOnce() {
         ];
 
         if (typeof fr === "number" && fr > 0) {
+          console.log('📈 [DEBUG] pollDepositsOnce: Funding rate positive, executing long-spot-short-perp strategy');
           await bot.telegram.sendMessage(
             savedChatId,
             `Funding rate positive (${fr}). Opening Long Spot / Short Perp…`
           );
+          console.log('🚀 [DEBUG] pollDepositsOnce: Running long-spot-short-perp CLI with args:', baseArgs);
           const out = await runTsCli(LONG_CLI, baseArgs);
           if (out) console.log("[long_spot_short_perp output]\n" + out);
         } else {
+          console.log('📉 [DEBUG] pollDepositsOnce: Funding rate negative, executing short-spot-long-perp strategy');
           await bot.telegram.sendMessage(
             savedChatId,
             `Funding rate negative (${fr}). Opening Short Spot / Long Perp…`
           );
+          console.log('🚀 [DEBUG] pollDepositsOnce: Running short-spot-long-perp CLI with args:', baseArgs);
           const out = await runTsCli(SHORT_CLI, baseArgs);
           if (out) console.log("[short_spot_long_perp output]\n" + out);
         }
@@ -781,6 +803,6 @@ function renderPositionSummaryCompact(data) {
   const sign = net >= 0 ? "+" : "−";
   return `${head}\n${p.pair || ""} ${p.direction || ""} — size $${fmt2(size)}, collat $${fmt2(col)} (${fmt2(lev)}x)\nentry ${fmt4(entry)}, mark ${fmt4(mark)}, PnL ${sign}$${fmt4(Math.abs(net))}`;
 }
-function toNum(x){ if(x==null) return 0; if(typeof x==="number") return x; const m=String(x).match(/-?\d+(?:\.\d+)?/); return m?Number(m[0]):0; }
-function fmt2(n){ return Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function fmt4(n){ return Number(n).toLocaleString(undefined,{minimumFractionDigits:4,maximumFractionDigits:4}); }
+function toNum(x) { if (x == null) return 0; if (typeof x === "number") return x; const m = String(x).match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : 0; }
+function fmt2(n) { return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmt4(n) { return Number(n).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 }); }

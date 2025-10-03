@@ -896,7 +896,9 @@ function ensureWebSocketGlobal() {
 }
 
 export async function main() {
+    console.log('🚀 [DEBUG] Starting short-spot-long-perp main function');
     const args = parseArgs(process.argv.slice(2));
+    console.log('🔧 [DEBUG] Parsed args:', JSON.stringify(args, null, 2));
 
     const hyperionNetwork = (args.hyperionNetwork ?? 'mainnet').toLowerCase();
     if (hyperionNetwork !== 'mainnet' && hyperionNetwork !== 'testnet') {
@@ -981,8 +983,10 @@ export async function main() {
     const merkle = new MerkleClient(merkleConfig);
     const aptos = new Aptos(merkleConfig.aptosConfig);
 
+    console.log('📊 [DEBUG] Getting pair info and state for:', perpPair);
     const pairInfo = await merkle.getPairInfo({ pairId: perpPair });
     const pairState = await merkle.getPairState({ pairId: perpPair });
+    console.log('📈 [DEBUG] Pair info retrieved, funding rate:', Number(pairState.fundingRate) / 1_000_000);
     let autoSpotRoundTripBps: number | undefined;
     let autoPerpRoundTripBps: number | undefined;
     let spotRoundTripUsed: number | undefined;

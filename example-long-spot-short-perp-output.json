@@ -1,0 +1,100 @@
+{
+    "action": "arbitrage_executed",
+    "strategy": "long_spot_short_perp",
+    "hyperionQuote": {
+        "network": "mainnet",
+        "outputToken": "0xa",
+        "outputAmount": "0.1",
+        "inputToken": "0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b",
+        "slippageBps": 50,
+        "routePath": [
+            "USDC",
+            "APT"
+        ],
+        "amountIn": "1000000",
+        "amountOut": "10000000",
+        "amountInBase": "1000000",
+        "amountOutBase": "10000000"
+    },
+    "perpLeg": {
+        "pair": "APT_USD",
+        "sizeDelta": "1000000",
+        "collateralDelta": "1000000",
+        "direction": "SHORT",
+        "submitPerp": true
+    },
+    "costAnalysis": {
+        "spotRoundTrip": {
+            "value": 25.5,
+            "source": "auto",
+            "unit": "bps"
+        },
+        "perpRoundTrip": {
+            "value": 10.0,
+            "source": "auto",
+            "unit": "bps"
+        },
+        "gasRoundTrip": {
+            "value": 5.0,
+            "source": "default",
+            "unit": "bps"
+        },
+        "tradingCostPerHour": {
+            "value": 0.000169,
+            "unit": "%/hr",
+            "holdHours": 24
+        },
+        "capitalCostPerHour": {
+            "value": 0.000114,
+            "unit": "%/hr",
+            "apr": 1.0
+        },
+        "breakevenPerHour": {
+            "value": 0.000283,
+            "unit": "%/hr"
+        },
+        "riskBufferPerHour": {
+            "value": 0.000050,
+            "unit": "%/hr",
+            "zScore": 1.0,
+            "fundingStd": 0.0005
+        },
+        "basisPremiumPerHour": {
+            "value": 0.000000,
+            "unit": "%/hr"
+        }
+    },
+    "fundingAnalysis": {
+        "currentFundingRate": {
+            "value": 0.000500,
+            "unit": "%/hr",
+            "source": "pair_state"
+        },
+        "fundingForHold": {
+            "value": 0.000500,
+            "unit": "%/hr",
+            "mode": "auto",
+            "manualInput": null
+        },
+        "breakeven": {
+            "possible": true,
+            "holdHours": 12.5,
+            "holdDays": 0.52,
+            "tradingCostPct": 0.00406,
+            "netFundingPerHour": 0.000217
+        }
+    },
+    "depositResult": {
+        "action": "usdc_deposited",
+        "deficit": "500000",
+        "transactionHash": "0x1234567890abcdef...",
+        "merkleBalanceBefore": "500000"
+    },
+    "perpTransaction": {
+        "hash": "0xabcdef1234567890...",
+        "version": "12345678",
+        "pair": "APT_USD",
+        "sizeDelta": "1000000",
+        "collateralDelta": "1000000"
+    }
+}

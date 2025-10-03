@@ -1,0 +1,46 @@
+{
+    "action": "arbitrage_closed",
+    "strategy": "close_long_spot_short_perp",
+    "hyperionQuote": {
+        "network": "mainnet",
+        "outputToken": "0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b",
+        "outputAmount": "100",
+        "inputToken": "0xa",
+        "amountIn": "100000000",
+        "amountOut": "1000000000",
+        "routePath": [
+            "APT",
+            "USDC"
+        ]
+    },
+    "spotExecution": {
+        "action": "apt_swapped_for_usdc",
+        "hyperionQuote": {
+            "network": "mainnet",
+            "outputToken": "0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b",
+            "outputAmount": "100",
+            "inputToken": "0xa",
+            "amountIn": "100000000",
+            "amountOut": "1000000000",
+            "routePath": [
+                "APT",
+                "USDC"
+            ]
+        },
+        "slippageBps": 50
+    },
+    "perpPosition": {
+        "pair": "APT_USD",
+        "openSize": "1000000000",
+        "collateral": "1000000000",
+        "direction": "SHORT"
+    },
+    "perpClose": {
+        "action": "short_perp_position_closed",
+        "transactionHash": "0xabcdef1234567890...",
+        "version": "12345678",
+        "pair": "APT_USD",
+        "sizeClosed": "1000000000",
+        "direction": "SHORT"
+    }
+}

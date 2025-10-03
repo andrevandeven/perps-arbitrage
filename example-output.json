@@ -1,0 +1,36 @@
+{
+    "merkle": {
+        "account": "0x1234567890abcdef1234567890abcdef12345678",
+        "freeUsdcBalance": "1000.000000",
+        "positions": [
+            {
+                "pair": "APT_USD",
+                "direction": "LONG",
+                "sizeUsdc": "500.000000",
+                "collateralUsdc": "100.000000",
+                "averagePrice": "8.5000",
+                "markPrice": "8.7500",
+                "unrealizedPnlUsdc": "14.7059",
+                "fundingFeeAccruedUsdc": "2.5000",
+                "rolloverFeeAccruedUsdc": "0.1000",
+                "netPnlAfterFeesUsdc": "12.1059",
+                "lastExecTimestamp": "2024-01-15T10:30:00.000Z",
+                "accFundingPerSize": "0.00005000",
+                "accRolloverPerCollateral": "0.00000100"
+            }
+        ],
+        "orders": []
+    },
+    "aries": {
+        "wrappedUsdcCoinBalance": "250.000000",
+        "profileExists": true,
+        "profileAddress": "0xabcdef1234567890abcdef1234567890abcdef12",
+        "wrappedUsdcDeposited": "200.000000 USDC",
+        "wrappedUsdcShares": "200000000",
+        "aptBorrowed": "25.500000 APT",
+        "aptShares": "2550000000"
+    },
+    "hyperion": {
+        "message": "Hyperion spot swaps are stateless; no open positions to display."
+    }
+}

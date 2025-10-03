@@ -1,0 +1,60 @@
+{
+    "action": "arbitrage_closed",
+    "strategy": "close_short_spot_long_perp",
+    "loanStatus": {
+        "hasOutstandingLoan": true,
+        "outstandingLoan": "100000000",
+        "message": "Outstanding APT loan (base units): 100000000"
+    },
+    "spotLegStatus": {
+        "required": true,
+        "spotOutBase": "100000000",
+        "message": "Buy-back required: 100000000 APT"
+    },
+    "hyperionQuote": {
+        "network": "mainnet",
+        "outputToken": "0xa",
+        "outputAmount": "1.0",
+        "inputToken": "0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b",
+        "amountIn": "1000000",
+        "amountOut": "100000000",
+        "routePath": [
+            "USDC",
+            "APT"
+        ]
+    },
+    "spotExecution": {
+        "action": "usdc_swapped_for_apt",
+        "hyperionQuote": {
+            "network": "mainnet",
+            "outputToken": "0xa",
+            "outputAmount": "1.0",
+            "inputToken": "0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b",
+            "amountIn": "1000000",
+            "amountOut": "100000000",
+            "routePath": [
+                "USDC",
+                "APT"
+            ]
+        },
+        "slippageBps": 50
+    },
+    "repayResult": {
+        "action": "apt_loan_repaid",
+        "repayAmount": "100000000"
+    },
+    "perpPosition": {
+        "pair": "APT_USD",
+        "openSize": "1000000000",
+        "collateral": "1000000000",
+        "direction": "LONG"
+    },
+    "perpClose": {
+        "action": "long_perp_position_closed",
+        "transactionHash": "0xabcdef1234567890...",
+        "version": "12345678",
+        "pair": "APT_USD",
+        "sizeClosed": "1000000000",
+        "direction": "LONG"
+    }
+}

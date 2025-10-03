@@ -1,0 +1,64 @@
+{
+    "action": "arbitrage_executed",
+    "strategy": "short_spot_long_perp",
+    "spotLeg": {
+        "borrowAmount": "100000000",
+        "usdcProceeds": "1000000000",
+        "hyperionQuote": {
+            "network": "mainnet",
+            "outputToken": "0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b",
+            "outputAmount": "100",
+            "inputToken": "0xa",
+            "slippageBps": 50,
+            "routePath": [
+                "APT",
+                "USDC"
+            ],
+            "amountIn": "100000000",
+            "amountOut": "1000000000",
+            "amountInBase": "100000000",
+            "amountOutBase": "1000000000"
+        }
+    },
+    "perpLeg": {
+        "pair": "APT_USD",
+        "sizeDelta": "1000000000",
+        "collateralDelta": "1000000000",
+        "direction": "LONG"
+    },
+    "depositResult": {
+        "action": "usdc_deposited",
+        "deficit": "500000",
+        "transactionHash": "0x1234567890abcdef...",
+        "merkleBalanceBefore": "500000"
+    },
+    "perpTransaction": {
+        "hash": "0xabcdef1234567890...",
+        "version": "12345678",
+        "pair": "APT_USD",
+        "sizeDelta": "1000000000",
+        "collateralDelta": "1000000000"
+    },
+    "profitabilityAnalysis": {
+        "oneTimeCosts": {
+            "spotRoundTrip": 25.5,
+            "perpRoundTrip": 10.0,
+            "gasEstimate": 5.0,
+            "totalTradingCost": 0.00406
+        },
+        "recurringCosts": {
+            "borrowApr": 6.0,
+            "borrowCostPerHour": 0.000685
+        },
+        "income": {
+            "fundingRate": 0.000500,
+            "fundingIncomePerHour": 0.000500,
+            "netIncomePerHour": 0.000185
+        },
+        "profitability": {
+            "isProfitable": true,
+            "hoursToBreakeven": 21.9,
+            "daysToBreakeven": 0.91
+        }
+    }
+}

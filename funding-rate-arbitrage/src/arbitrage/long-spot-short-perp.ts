@@ -174,7 +174,7 @@ function ensureWebSocketGlobal() {
   }
 }
 
-async function main() {
+export async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   const hyperionNetwork = (args.hyperionNetwork ?? 'mainnet').toLowerCase();
@@ -488,9 +488,11 @@ async function main() {
   }
 
   const sizeDelta = requiredUsdc > minSize ? requiredUsdc : minSize;
+
+  // Default to 1x leverage (collateral = size) unless specified otherwise
   const collateralInput = args.perpCollateral
     ? BigInt(Math.round(Number(args.perpCollateral) * 1_000_000))
-    : sizeDelta / 10n;
+    : sizeDelta;
   const collateralDelta = collateralInput > minCollateral
     ? collateralInput
     : minCollateral;
@@ -503,6 +505,35 @@ async function main() {
   if (!submitPerp) {
     console.log('Perp leg dry run (pass --submit-perp true to execute).');
     return;
+  }
+
+  // Check and deposit USDC to Merkle if needed
+  const merkleBalance = await merkle.getUsdcBalance({ accountAddress: account.accountAddress });
+  if (merkleBalance < collateralDelta) {
+    const deficit = collateralDelta - merkleBalance;
+    console.log(`\nMerkle USDC balance: ${Number(merkleBalance) / 1_000_000} USDC`);
+    console.log(`Need to deposit: ${Number(deficit) / 1_000_000} USDC`);
+
+    // Deposit USDC to Merkle vault using SDK
+    const depositPayload = await merkle.payloads.depositUsdc({
+      userAddress: account.accountAddress,
+      amount: deficit,
+    });
+
+    const depositTxn = await aptos.transaction.build.simple({
+      sender: account.accountAddress,
+      data: depositPayload,
+    });
+    const depositPending = await aptos.signAndSubmitTransaction({
+      signer: account,
+      transaction: depositTxn,
+    });
+    await aptos.waitForTransaction({
+      transactionHash: depositPending.hash,
+    });
+    console.log('✓ USDC deposited to Merkle, tx:', depositPending.hash);
+  } else {
+    console.log(`✓ Sufficient Merkle balance: ${Number(merkleBalance) / 1_000_000} USDC`);
   }
 
   const payload = await merkle.payloads.placeMarketOrder({

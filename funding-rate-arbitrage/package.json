@@ -12,7 +12,11 @@
     "hyperion": "tsx src/spot/hyperion.ts",
     "hyperion:list-coins": "tsx src/spot/list-coins.ts",
     "hyperion:list-pools": "tsx src/spot/list-pools.ts",
-    "arb:long-spot-short-perp": "tsx src/arbitrage/long-spot-short-perp.ts"
+    "arb:long-spot-short-perp": "tsx src/arbitrage/long-spot-short-perp.ts",
+    "arb:short-spot-long-perp": "tsx src/arbitrage/short-spot-long-perp.ts",
+    "arb:close-long-spot-short-perp": "tsx src/arbitrage/close-long-spot-short-perp.ts",
+    "arb:close-short-spot-long-perp": "tsx src/arbitrage/close-short-spot-long-perp.ts",
+    "borrow:aries": "tsx src/borrow/run.ts"
   },
   "dependencies": {
     "@aptos-labs/ts-sdk": "^1.33.1",

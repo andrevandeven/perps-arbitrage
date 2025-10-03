@@ -17,8 +17,7 @@ import { spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 
-
-import { main as seePosition } from "../funding-rate-arbitrage/src/perp/positions.ts"
+import { main as seePosition } from "../funding-rate-arbitrage/src/perp/positions.ts";
 
 import { main as close_short_spot_long_perp } from "../funding-rate-arbitrage/src/arbitrage/close-short-spot-long-perp.ts";
 import { main as close_long_spot_short_perp } from "../funding-rate-arbitrage/src/arbitrage/close-long-spot-short-perp.ts";
@@ -80,6 +79,35 @@ function runTsCli(tsFile, args = []) {
       else reject(new Error(`exit ${code}\n${err || out}`));
     });
   });
+}
+
+// Small helpers for polling and output excerpting
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function pollPositionUntilOpen(
+  fetchPositionInfo,
+  { tries = 10, delayMs = 3000 } = {}
+) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const data = await fetchPositionInfo();
+      const positions = data?.merkle?.positions || [];
+      if (Array.isArray(positions) && positions.length > 0) return data;
+    } catch (e) {
+      // swallow and retry
+    }
+    await sleep(delayMs);
+  }
+  return null;
+}
+
+function firstLines(s, n = 12) {
+  return String(s || "")
+    .split(/\r?\n/)
+    .slice(0, n)
+    .join("\n");
 }
 
 /* =================== Config =================== */
@@ -364,7 +392,7 @@ bot.command("set_wallet", async (ctx) => {
     );
     await ctx.reply(
       `Please fund me so I can trade USDC for your wallet ${normalized}. ` +
-      `If you need my deposit address in the future, just run /address.`
+        `If you need my deposit address in the future, just run /address.`
     );
     // start polling deposits every 10s now that we have a wallet
     startDepositWatcher();
@@ -402,11 +430,20 @@ bot.command("balance", async (ctx) => {
 bot.start(async (ctx) => {
   const greeting =
     "Hey there! I look for funding-rate arbitrage between perps and spot to generate returns — I take a 20% fee on profits. Learn more: https://github.com/andrevandeven/perps-arbitrage";
+  const commands =
+    "Here are the commands you can use:\n\n" +
+    "/set_wallet <address> — Save or update your wallet address\n" +
+    "/wallet — Show your currently saved wallet\n" +
+    "/address — Get my deposit address\n" +
+    "/balance — Check my current APT and USDC balances\n" +
+    "/close_position <address> — Withdraw all USDC to your wallet\n";
   const prompt =
     "Could you please send your wallet address (e.g. 0x...) so I can save it for future payouts? I'll only use it to send funds.";
 
   await ctx.reply(greeting);
+  await ctx.reply(commands);
   await ctx.reply(prompt);
+
 
   // mark as awaiting address (single wallet flow)
   awaitingWallet = true;
@@ -429,7 +466,7 @@ bot.on("text", async (ctx, next) => {
     await ctx.reply(`Nice — your wallet ${normalized} is saved.`);
     await ctx.reply(
       `Please fund the trading bot with USDC so it can start trading for you. ` +
-      `If you need the bot's deposit address, just run /address.`
+        `If you need the bot's deposit address, just run /address.`
     );
     // start polling deposits every 10s now that we have a wallet
     startDepositWatcher();
@@ -488,7 +525,10 @@ bot.command("close_position", async (ctx) => {
 
       console.log("Inferred funding rate sign:", fundingRateSign);
     } catch (err) {
-      console.warn("Could not fetch/parse position info to infer funding rate:", err?.message || err);
+      console.warn(
+        "Could not fetch/parse position info to infer funding rate:",
+        err?.message || err
+      );
     }
 
     // --- 2) Close positions according to funding-rate sign (run CLI files with required args)
@@ -496,34 +536,20 @@ bot.command("close_position", async (ctx) => {
 
     // required arg for your close CLIs
     const closeArgs = ["--perp-pair", "APT_USD"];
-
     try {
-      if (fundingRateSign > 0) {
-        // Positive funding → close_long_spot_short_perp CLI
-        console.log("Funding POSITIVE → close_long_spot_short_perp", closeArgs);
-        const out = await runTsCli(CLOSE_LONG_SHORT_CLI, closeArgs);
-        if (out) console.log("[close_long_spot_short_perp output]\n" + out);
-      } else if (fundingRateSign < 0) {
-        // Negative funding → close_short_spot_long_perp CLI
-        console.log("Funding NEGATIVE → close_short_spot_long_perp", closeArgs);
-        const out = await runTsCli(CLOSE_SHORT_LONG_CLI, closeArgs);
-        if (out) console.log("[close_short_spot_long_perp output]\n" + out);
-      } else {
-        // Unknown: try long/short first, then short/long as fallback.
-        console.log("Funding UNKNOWN → try close_long_spot_short_perp then fallback", closeArgs);
-        try {
-          const out = await runTsCli(CLOSE_LONG_SHORT_CLI, closeArgs);
-          if (out) console.log("[close_long_spot_short_perp output]\n" + out);
-        } catch (e1) {
-          console.warn("close_long_spot_short_perp failed, trying close_short_spot_long_perp:", e1?.message || e1);
-          const out2 = await runTsCli(CLOSE_SHORT_LONG_CLI, closeArgs);
-          if (out2) console.log("[close_short_spot_long_perp output]\n" + out2);
-        }
-      }
-      await ctx.reply("All positions closed (or no open positions). Proceeding to payout…");
+    const out1 = await runTsCli(CLOSE_LONG_SHORT_CLI, closeArgs);
+    const out2 = await runTsCli(CLOSE_SHORT_LONG_CLI, closeArgs);
+
+    if (out1) console.log("[close_long_spot_short_perp output]\n" + out1);
+    if (out2) console.log("[close_short_spot_long_perp output]\n" + out2);
+
+    "All positions closed (or no open positions). Proceeding to payout…"
+    
     } catch (closeErr) {
       console.error("Error while closing positions:", closeErr);
-      await ctx.reply(`Failed while closing positions: ${closeErr?.message || closeErr}`);
+      await ctx.reply(
+        `Failed while closing positions: ${closeErr?.message || closeErr}`
+      );
       return;
     }
 
@@ -535,10 +561,13 @@ bot.command("close_position", async (ctx) => {
 
     // totalDeposit tracks deposits in human-readable USDC (not base units)
     const depositHuman = Number(totalDeposit || 0);
-    const depositBase = BigInt(Math.round(depositHuman * 10 ** Number(USDC_DECIMALS)));
+    const depositBase = BigInt(
+      Math.round(depositHuman * 10 ** Number(USDC_DECIMALS))
+    );
 
     // If deposit wasn't tracked, fall back to zero
-    const profitBase = currentBalBase > depositBase ? currentBalBase - depositBase : 0n;
+    const profitBase =
+      currentBalBase > depositBase ? currentBalBase - depositBase : 0n;
 
     // Bot fee is 20% of profit (rounded down to base unit)
     const FEE_PERCENT = 20n;
@@ -591,8 +620,8 @@ bot.command("history", async (ctx) => {
         r.type === "deposit"
           ? "IN +"
           : r.type === "withdraw"
-            ? "OUT -"
-            : "XFER";
+          ? "OUT -"
+          : "XFER";
       return `${kind} ${amt} USDC • v${r.version} • ${new Date(
         r.time
       ).toISOString()}\n${explorerTxnUrl(r.hash || r.version)}`;
@@ -612,10 +641,16 @@ function numFromStr(s) {
   return m ? Number(m[0]) : 0;
 }
 function fmtUSD(n, dp = 2) {
-  return Number(n).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  return Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp,
+  });
 }
 function sumFees(pos) {
-  return numFromStr(pos.fundingFeeAccruedUsdc) + numFromStr(pos.rolloverFeeAccruedUsdc);
+  return (
+    numFromStr(pos.fundingFeeAccruedUsdc) +
+    numFromStr(pos.rolloverFeeAccruedUsdc)
+  );
 }
 function renderPositionSummary(data) {
   const merkle = data?.merkle || {};
@@ -630,11 +665,15 @@ function renderPositionSummary(data) {
   const header = [
     `Account: ${merkle.account || "N/A"}`,
     `Free USDC: $${fmtUSD(freeUSDC)}`,
-    `Aries: wrapped USDC bal $${fmtUSD(wrappedUSDC)} • deposited $${fmtUSD(wrappedDeposited)} • APT borrowed ${fmtUSD(aptBorrowed, 6)}`,
+    `Aries: wrapped USDC bal $${fmtUSD(wrappedUSDC)} • deposited $${fmtUSD(
+      wrappedDeposited
+    )} • APT borrowed ${fmtUSD(aptBorrowed, 6)}`,
   ].join("\n");
 
   if (positions.length === 0) {
-    const hyperionMsg = data?.hyperion?.message ? `\n${data.hyperion.message}` : "";
+    const hyperionMsg = data?.hyperion?.message
+      ? `\n${data.hyperion.message}`
+      : "";
     return `${header}\n\nNo open perp positions.${hyperionMsg}`;
   }
 
@@ -650,12 +689,24 @@ function renderPositionSummary(data) {
     const fees = sumFees(p);
     const dir = p.direction || "";
     const pair = p.pair || "";
-    const ts = p.lastExecTimestamp ? new Date(p.lastExecTimestamp).toISOString().replace(".000Z", "Z") : "N/A";
+    const ts = p.lastExecTimestamp
+      ? new Date(p.lastExecTimestamp).toISOString().replace(".000Z", "Z")
+      : "N/A";
     const sign = net >= 0 ? "+" : "−";
-    return `${i + 1}. ${pair} ${dir} — size $${fmtUSD(size)}, collateral $${fmtUSD(col)} (${fmtUSD(lev, 2)}x), entry ${fmtUSD(entry, 4)}, mark ${fmtUSD(mark, 4)}, PnL ${sign}$${fmtUSD(Math.abs(net), 4)} (U:$${fmtUSD(upnl, 4)}, fees $${fmtUSD(fees, 4)}), last exec ${ts}`;
+    return `${i + 1}. ${pair} ${dir} — size $${fmtUSD(
+      size
+    )}, collateral $${fmtUSD(col)} (${fmtUSD(lev, 2)}x), entry ${fmtUSD(
+      entry,
+      4
+    )}, mark ${fmtUSD(mark, 4)}, PnL ${sign}$${fmtUSD(
+      Math.abs(net),
+      4
+    )} (U:$${fmtUSD(upnl, 4)}, fees $${fmtUSD(fees, 4)}), last exec ${ts}`;
   });
 
-  return `${header}\n\nOpen positions (${positions.length}):\n` + lines.join("\n");
+  return (
+    `${header}\n\nOpen positions (${positions.length}):\n` + lines.join("\n")
+  );
 }
 
 // === Command: /see_position ===
@@ -672,30 +723,14 @@ bot.command("see_position", async (ctx) => {
 /* =================== Deposit watcher (webscraper) =================== */
 async function pollDepositsOnce() {
   try {
-    console.log('🔍 [DEBUG] pollDepositsOnce: Starting deposit check');
-    if (!savedWallet) {
-      console.log('⚠️ [DEBUG] pollDepositsOnce: No saved wallet, skipping');
-      return;
-    }
-    console.log('📊 [DEBUG] pollDepositsOnce: Checking latest deposit for wallet:', savedWallet);
+    if (!savedWallet) return;
     const [version, deposit] = await checkLatestDeposit(savedWallet, address);
-    console.log('📈 [DEBUG] pollDepositsOnce: Latest deposit result - version:', version, 'deposit:', deposit);
-    if (version === null) {
-      console.log('ℹ️ [DEBUG] pollDepositsOnce: No new version found');
-      return;
-    }
-    if (seenVersions.has(version)) {
-      console.log('🔄 [DEBUG] pollDepositsOnce: Version already seen:', version);
-      return;
-    }
+    if (version === null) return;
+    if (seenVersions.has(version)) return;
     seenVersions.add(version);
-    console.log('✅ [DEBUG] pollDepositsOnce: Added version to seen set:', version);
     if (deposit && deposit > 0) {
-      console.log('💰 [DEBUG] pollDepositsOnce: Processing deposit:', deposit, 'USDC');
       totalDeposit += deposit;
-      console.log('📊 [DEBUG] pollDepositsOnce: Updated total deposit to:', totalDeposit, 'USDC');
       if (savedChatId) {
-        console.log('📱 [DEBUG] pollDepositsOnce: Sending notification to chat:', savedChatId);
         await bot.telegram.sendMessage(
           savedChatId,
           `Deposit detected: +${deposit} USDC\nVersion: ${version}\nTotal: ${totalDeposit} USDC`
@@ -704,9 +739,7 @@ async function pollDepositsOnce() {
 
       // === Immediately deploy the deposit into a position based on funding rate ===
       try {
-        console.log('🎯 [DEBUG] pollDepositsOnce: Getting funding rate for arbitrage decision');
         const fr = await getFundingRate(); // positive => long spot / short perp; negative => short spot / long perp
-        console.log('📊 [DEBUG] pollDepositsOnce: Current funding rate:', fr);
         const baseArgs = [
           "--spot-out",
           "5",
@@ -719,27 +752,32 @@ async function pollDepositsOnce() {
           "--submit-spot",
           "true",
           "--submit-perp",
-          "true"
+          "true",
         ];
 
+        let cliOut = "";
         if (typeof fr === "number" && fr > 0) {
-          console.log('📈 [DEBUG] pollDepositsOnce: Funding rate positive, executing long-spot-short-perp strategy');
           await bot.telegram.sendMessage(
             savedChatId,
             `Funding rate positive (${fr}). Opening Long Spot / Short Perp…`
           );
-          console.log('🚀 [DEBUG] pollDepositsOnce: Running long-spot-short-perp CLI with args:', baseArgs);
-          const out = await runTsCli(LONG_CLI, baseArgs);
-          if (out) console.log("[long_spot_short_perp output]\n" + out);
+          cliOut = await runTsCli(LONG_CLI, baseArgs);
         } else {
-          console.log('📉 [DEBUG] pollDepositsOnce: Funding rate negative, executing short-spot-long-perp strategy');
           await bot.telegram.sendMessage(
             savedChatId,
             `Funding rate negative (${fr}). Opening Short Spot / Long Perp…`
           );
-          console.log('🚀 [DEBUG] pollDepositsOnce: Running short-spot-long-perp CLI with args:', baseArgs);
-          const out = await runTsCli(SHORT_CLI, baseArgs);
-          if (out) console.log("[short_spot_long_perp output]\n" + out);
+          cliOut = await runTsCli(SHORT_CLI, baseArgs);
+        }
+
+        if (cliOut) {
+          console.log("[auto-trade CLI output]\n" + cliOut);
+          // Send a short excerpt so you can see what happened
+          await bot.telegram.sendMessage(
+            savedChatId,
+            "Trade output (excerpt):\n```\n" + cliOut + "\n```",
+            { parse_mode: "Markdown" }
+          );
         }
       } catch (tradeErr) {
         console.error("auto-trade after deposit failed:", tradeErr);
@@ -752,16 +790,29 @@ async function pollDepositsOnce() {
         return; // don’t try to render position if open failed
       }
 
-
-      // === After positions have been set, send a concise /see_position-style summary ===
+      // === After positions have been set, poll until indexer shows them (max ~30s) ===
       try {
-        const data = await seePosition(); // reuse imported seePosition() that returns the same JSON
-        const text = renderPositionSummaryCompact(data);
-        if (savedChatId) {
-          await bot.telegram.sendMessage(savedChatId, `Current Position Info:\n${text}`);
+        const data = await pollPositionUntilOpen(seePosition, {
+          tries: 10,
+          delayMs: 3000,
+        });
+        if (!data) {
+          await bot.telegram.sendMessage(
+            savedChatId,
+            "No open position detected yet. This can be indexer lag or the trade was skipped by risk/min-funding checks."
+          );
+          return;
         }
+        const text = renderPositionSummaryCompact(data);
+        await bot.telegram.sendMessage(
+          savedChatId,
+          `Current Position Info:\n${text}`
+        );
       } catch (summErr) {
-        console.warn("could not fetch/render position summary:", summErr?.message || summErr);
+        console.warn(
+          "could not fetch/render position summary:",
+          summErr?.message || summErr
+        );
       }
     }
   } catch (e) {
@@ -789,7 +840,9 @@ function renderPositionSummaryCompact(data) {
   const positions = Array.isArray(merkle.positions) ? merkle.positions : [];
   const free = toNum(merkle.freeUsdcBalance);
   const wBal = toNum(aries.wrappedUsdcCoinBalance);
-  const head = `Account: ${merkle.account || "N/A"}\nFree USDC: ${fmt2(free)} • Aries wrapped: ${fmt2(wBal)}`;
+  const head = `Account: ${merkle.account || "N/A"}\nFree USDC: ${fmt2(
+    free
+  )} • Aries wrapped: ${fmt2(wBal)}`;
   if (!positions.length) {
     return `${head}\nNo open perp positions.`;
   }
@@ -801,8 +854,27 @@ function renderPositionSummaryCompact(data) {
   const mark = toNum(p.markPrice);
   const net = toNum(p.netPnlAfterFeesUsdc);
   const sign = net >= 0 ? "+" : "−";
-  return `${head}\n${p.pair || ""} ${p.direction || ""} — size $${fmt2(size)}, collat $${fmt2(col)} (${fmt2(lev)}x)\nentry ${fmt4(entry)}, mark ${fmt4(mark)}, PnL ${sign}$${fmt4(Math.abs(net))}`;
+  return `${head}\n${p.pair || ""} ${p.direction || ""} — size $${fmt2(
+    size
+  )}, collat $${fmt2(col)} (${fmt2(lev)}x)\nentry ${fmt4(entry)}, mark ${fmt4(
+    mark
+  )}, PnL ${sign}$${fmt4(Math.abs(net))}`;
 }
-function toNum(x) { if (x == null) return 0; if (typeof x === "number") return x; const m = String(x).match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : 0; }
-function fmt2(n) { return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function fmt4(n) { return Number(n).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 }); }
+function toNum(x) {
+  if (x == null) return 0;
+  if (typeof x === "number") return x;
+  const m = String(x).match(/-?\d+(?:\.\d+)?/);
+  return m ? Number(m[0]) : 0;
+}
+function fmt2(n) {
+  return Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+function fmt4(n) {
+  return Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  });
+}

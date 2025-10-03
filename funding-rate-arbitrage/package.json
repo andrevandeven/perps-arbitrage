@@ -22,7 +22,7 @@
     "@aptos-labs/ts-sdk": "^1.33.1",
     "@hyperionxyz/sdk": "^0.0.21",
     "@merkletrade/ts-sdk": "^1.0.3",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.6.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
